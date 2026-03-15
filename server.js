@@ -287,6 +287,35 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API: proxy for external APIs (handles CORS)
+  if (req.method === "GET" && pathname === "/api/proxy") {
+    const targetUrl = url.searchParams.get("url");
+    if (!targetUrl) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end('{"error":"Missing url param"}');
+      return;
+    }
+    const https = require("https");
+    const http2 = require("http");
+    const mod = targetUrl.startsWith("https") ? https : http2;
+    const headers = {};
+    // Forward specific headers from the request
+    if (req.headers["x-api-key"]) headers["x-access-token"] = req.headers["x-api-key"];
+    if (req.headers["x-finnhub-token"]) headers["X-Finnhub-Token"] = req.headers["x-finnhub-token"];
+    mod.get(targetUrl, { headers }, (proxyRes) => {
+      let body = "";
+      proxyRes.on("data", (chunk) => (body += chunk));
+      proxyRes.on("end", () => {
+        res.writeHead(proxyRes.statusCode, { "Content-Type": proxyRes.headers["content-type"] || "application/json" });
+        res.end(body);
+      });
+    }).on("error", (e) => {
+      res.writeHead(502, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: e.message }));
+    });
+    return;
+  }
+
   // API: server stats
   if (req.method === "GET" && pathname === "/api/stats") {
     const pageFiles = fs.readdirSync(PAGES_DIR).filter(f => f.endsWith(".html"));
