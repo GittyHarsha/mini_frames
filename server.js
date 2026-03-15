@@ -298,7 +298,7 @@ const server = http.createServer((req, res) => {
     const https = require("https");
     const http2 = require("http");
     const mod = targetUrl.startsWith("https") ? https : http2;
-    const headers = {};
+    const headers = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" };
     // Forward specific headers from the request
     if (req.headers["x-api-key"]) headers["x-access-token"] = req.headers["x-api-key"];
     if (req.headers["x-finnhub-token"]) headers["X-Finnhub-Token"] = req.headers["x-finnhub-token"];
