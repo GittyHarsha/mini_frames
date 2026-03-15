@@ -36,6 +36,13 @@ const knownFiles = new Set(
 
 // --- Shared store helpers ---
 
+// Simple async mutex for store operations (prevents RMW race conditions)
+let _storeLock = Promise.resolve();
+function withStoreLock(fn) {
+  _storeLock = _storeLock.then(fn, fn);
+  return _storeLock;
+}
+
 function readStore() {
   try {
     return JSON.parse(fs.readFileSync(SHARED_STORE_FILE, "utf8"));
@@ -207,6 +214,8 @@ const server = http.createServer((req, res) => {
         try {
           JSON.parse(body); // validate JSON
           fs.writeFileSync(storageFile, body, "utf8");
+          // Notify other pages that this page's storage changed
+          broadcast({ type: "storage-update", pageId });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end('{"ok":true}');
         } catch {
@@ -392,8 +401,10 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === "DELETE" && pathname === "/api/store") {
-    writeStore({});
-    broadcast({ type: "store-clear" });
+    withStoreLock(() => {
+      writeStore({});
+      broadcast({ type: "store-clear" });
+    });
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end('{"ok":true}');
     return;
@@ -416,10 +427,12 @@ const server = http.createServer((req, res) => {
       req.on("end", () => {
         try {
           const value = JSON.parse(body);
-          const store = readStore();
-          store[key] = value;
-          writeStore(store);
-          broadcast({ type: "store-update", key, value });
+          withStoreLock(() => {
+            const store = readStore();
+            store[key] = value;
+            writeStore(store);
+            broadcast({ type: "store-update", key, value });
+          });
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end('{"ok":true}');
         } catch {
@@ -431,10 +444,12 @@ const server = http.createServer((req, res) => {
     }
 
     if (req.method === "DELETE") {
-      const store = readStore();
-      delete store[key];
-      writeStore(store);
-      broadcast({ type: "store-delete", key });
+      withStoreLock(() => {
+        const store = readStore();
+        delete store[key];
+        writeStore(store);
+        broadcast({ type: "store-delete", key });
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end('{"ok":true}');
       return;
@@ -619,21 +634,33 @@ wss.on("connection", (ws) => {
 
     if (msg.type === "msg" && msg.to) {
       const targets = pageClients.get(msg.to);
+      let delivered = false;
       if (targets) {
         const data = JSON.stringify(msg);
         for (const client of targets) {
-          if (client.readyState === 1) client.send(data);
+          if (client.readyState === 1) { client.send(data); delivered = true; }
         }
+      }
+      // Send ACK/NAK back to sender
+      if (msg._id) {
+        const ack = JSON.stringify({ type: 'bus-ack', _id: msg._id, delivered });
+        if (ws.readyState === 1) ws.send(ack);
       }
       return;
     }
 
     if (msg.type === "broadcast") {
       const data = JSON.stringify(msg);
+      let count = 0;
       for (const [, clients] of pageClients) {
         for (const client of clients) {
-          if (client !== ws && client.readyState === 1) client.send(data);
+          if (client !== ws && client.readyState === 1) { client.send(data); count++; }
         }
+      }
+      // Send ACK with delivery count
+      if (msg._id) {
+        const ack = JSON.stringify({ type: 'bus-ack', _id: msg._id, delivered: count > 0, count });
+        if (ws.readyState === 1) ws.send(ack);
       }
       return;
     }

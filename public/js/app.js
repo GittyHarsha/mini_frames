@@ -221,9 +221,6 @@
     if (sidebar) { sidebar.style.display = 'none'; hiddenElements.push(sidebar); }
     if (sidebarToggle) { sidebarToggle.style.display = 'none'; hiddenElements.push(sidebarToggle); }
 
-    // Hide minimap
-    var minimap = document.getElementById('mf-minimap');
-    if (minimap) { minimap.style.display = 'none'; hiddenElements.push(minimap); }
 
     // Hide all windows except the focused one
     for (var j = 0; j < allIds.length; j++) {
@@ -337,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (window.Sidebar) await Sidebar.init();
     if (window.GraphView) GraphView.init();
-    if (window.Minimap) Minimap.init();
+
 
     HotReload.connect();
   } catch (err) {

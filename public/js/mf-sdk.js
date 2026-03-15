@@ -100,15 +100,24 @@
 
   // --- WebSocket connection ---
 
+  var _reconnectDelay = 2000;
+  var _reconnectMax = 30000;
+  var _msgIdCounter = 0;
+  var _pendingAcks = {};  // msgId -> { resolve, reject, timer }
+  var storageListeners = []; // [(pageId) => void]
+
+  function _nextMsgId() { return PAGE_ID + ':' + (++_msgIdCounter); }
+
   function connect() {
     ws = new WebSocket('ws://' + location.host);
 
     ws.addEventListener('open', function () {
       connected = true;
+      _reconnectDelay = 2000; // reset backoff on success
       ws.send(JSON.stringify({ type: 'register', pageId: PAGE_ID }));
-      runReady();
-      // Load saved theme
-      fetch('/api/store/_mf_theme').then(function(r) { return r.json(); }).then(function(saved) {
+
+      // Sync state before firing ready callbacks
+      var themeReady = fetch('/api/store/_mf_theme').then(function(r) { return r.json(); }).then(function(saved) {
         if (saved && THEME_PRESETS[saved]) {
           applyThemeVars(saved);
           notifyThemeListeners(saved);
@@ -116,11 +125,22 @@
           applyThemeVars('dark');
         }
       }).catch(function() { applyThemeVars('dark'); });
+
+      themeReady.then(function() { runReady(); });
     });
 
     ws.addEventListener('message', function (event) {
       var msg;
       try { msg = JSON.parse(event.data); } catch (e) { return; }
+
+      // Bus ACK from server
+      if (msg.type === 'bus-ack' && msg._id && _pendingAcks[msg._id]) {
+        var pending = _pendingAcks[msg._id];
+        clearTimeout(pending.timer);
+        delete _pendingAcks[msg._id];
+        pending.resolve({ delivered: msg.delivered, count: msg.count });
+        return;
+      }
 
       // Inter-frame message
       if ((msg.type === 'msg' || msg.type === 'broadcast') && msg.channel) {
@@ -144,6 +164,13 @@
         }
       }
 
+      // Per-page storage change notifications
+      if (msg.type === 'storage-update' && msg.pageId) {
+        for (var s = 0; s < storageListeners.length; s++) {
+          try { storageListeners[s](msg.pageId); } catch (e) { console.error('[mf.storage]', e); }
+        }
+      }
+
       // Metadata updates
       if (msg.type === 'metadata-update') {
         for (var k = 0; k < metadataListeners.length; k++) {
@@ -154,7 +181,9 @@
 
     ws.addEventListener('close', function () {
       connected = false;
-      setTimeout(connect, 2000);
+      // Exponential backoff: 2s → 4s → 8s → ... → 30s max
+      setTimeout(connect, _reconnectDelay);
+      _reconnectDelay = Math.min(_reconnectDelay * 2, _reconnectMax);
     });
 
     ws.addEventListener('error', function () {
@@ -228,29 +257,29 @@
           });
         }).catch(function () {});
         // Ask parent to close us
-        window.parent.postMessage({ mfAction: 'close', pageId: PAGE_ID }, '*');
+        window.parent.postMessage({ mfAction: 'close', pageId: PAGE_ID }, location.origin);
       }
     },
 
     /** Control this page's parent window frame */
     win: {
       resize: function (w, h) {
-        window.parent.postMessage({ mfAction: 'win-resize', pageId: PAGE_ID, width: w, height: h }, '*');
+        window.parent.postMessage({ mfAction: 'win-resize', pageId: PAGE_ID, width: w, height: h }, location.origin);
       },
       move: function (x, y) {
-        window.parent.postMessage({ mfAction: 'win-move', pageId: PAGE_ID, x: x, y: y }, '*');
+        window.parent.postMessage({ mfAction: 'win-move', pageId: PAGE_ID, x: x, y: y }, location.origin);
       },
       setTitle: function (text) {
-        window.parent.postMessage({ mfAction: 'win-title', pageId: PAGE_ID, title: text }, '*');
+        window.parent.postMessage({ mfAction: 'win-title', pageId: PAGE_ID, title: text }, location.origin);
       },
       minimize: function () {
-        window.parent.postMessage({ mfAction: 'win-minimize', pageId: PAGE_ID }, '*');
+        window.parent.postMessage({ mfAction: 'win-minimize', pageId: PAGE_ID }, location.origin);
       },
       maximize: function () {
-        window.parent.postMessage({ mfAction: 'win-maximize', pageId: PAGE_ID }, '*');
+        window.parent.postMessage({ mfAction: 'win-maximize', pageId: PAGE_ID }, location.origin);
       },
       focus: function () {
-        window.parent.postMessage({ mfAction: 'win-focus', pageId: PAGE_ID }, '*');
+        window.parent.postMessage({ mfAction: 'win-focus', pageId: PAGE_ID }, location.origin);
       },
       getSize: function () {
         return { width: window.innerWidth, height: window.innerHeight };
@@ -276,29 +305,50 @@
       },
       delete: function () {
         return fetch('/api/storage/' + PAGE_ID, { method: 'DELETE' }).then(function (r) { return r.json(); });
+      },
+      onChange: function (callback) {
+        storageListeners.push(callback);
       }
     },
 
-    /** Inter-frame message bus */
+    /** Inter-frame message bus (returns promise with delivery status) */
     bus: {
       send: function (targetPageId, channel, payload) {
-        if (!ws || !connected) return;
+        if (!ws || !connected) return Promise.resolve({ delivered: false, error: 'disconnected' });
+        var id = _nextMsgId();
         ws.send(JSON.stringify({
           type: 'msg',
+          _id: id,
           from: PAGE_ID,
           to: targetPageId,
           channel: channel,
           payload: payload
         }));
+        return new Promise(function(resolve) {
+          var timer = setTimeout(function() {
+            delete _pendingAcks[id];
+            resolve({ delivered: false, error: 'timeout' });
+          }, 5000);
+          _pendingAcks[id] = { resolve: resolve, timer: timer };
+        });
       },
       broadcast: function (channel, payload) {
-        if (!ws || !connected) return;
+        if (!ws || !connected) return Promise.resolve({ delivered: false, error: 'disconnected' });
+        var id = _nextMsgId();
         ws.send(JSON.stringify({
           type: 'broadcast',
+          _id: id,
           from: PAGE_ID,
           channel: channel,
           payload: payload
         }));
+        return new Promise(function(resolve) {
+          var timer = setTimeout(function() {
+            delete _pendingAcks[id];
+            resolve({ delivered: false, error: 'timeout' });
+          }, 5000);
+          _pendingAcks[id] = { resolve: resolve, timer: timer };
+        });
       },
       on: function (channel, callback) {
         if (!listeners[channel]) listeners[channel] = [];
@@ -348,7 +398,7 @@
         mfAction: 'notify',
         message: message,
         type: type || 'info'
-      }, '*');
+      }, location.origin);
     },
 
     /** Theme system — presets + CSS custom properties */
@@ -362,7 +412,7 @@
         applyThemeVars(name);
         notifyThemeListeners(name);
         // Persist and broadcast via shared store
-        window.parent.postMessage({ mfAction: 'theme-change', theme: name }, '*');
+        window.parent.postMessage({ mfAction: 'theme-change', theme: name }, location.origin);
         return fetch('/api/store/_mf_theme', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -420,3 +470,4 @@
   window.mf = mf;
   connect();
 })();
+
