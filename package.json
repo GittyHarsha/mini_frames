@@ -1,0 +1,12 @@
+{
+  "name": "mini-frames",
+  "version": "1.0.0",
+  "description": "Floating AI-generated iframe windows — agents create HTML files, app hot-reloads them",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

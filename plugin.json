@@ -1,0 +1,11 @@
+{
+  "name": "mini-frames",
+  "description": "Generate web pages that appear as floating iframe windows — drag, resize, close, and hot-reload in real time",
+  "version": "1.0.0",
+  "author": {
+    "name": "harshanp"
+  },
+  "license": "MIT",
+  "keywords": ["iframe", "floating-windows", "web-pages", "hot-reload", "ui"],
+  "agents": "agents/"
+}

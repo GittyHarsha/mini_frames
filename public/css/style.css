@@ -1,0 +1,265 @@
+/* ============================================================
+   Mini Frames — floating iframe window manager
+   ============================================================ */
+
+/* --- Reset -------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* --- Themed scrollbars -------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mf-muted) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--mf-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mf-muted);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* --- Theme variables (defaults: dark) ----------------------- */
+:root {
+  --mf-bg: #0d0d1a;
+  --mf-surface: #16162e;
+  --mf-text: #e0e0ff;
+  --mf-muted: #888899;
+  --mf-accent: #a0a0ff;
+  --mf-border: rgba(160,160,255,0.12);
+  --mf-input-bg: rgba(160,160,255,0.06);
+  --mf-success: #4ade80;
+  --mf-error: #f87171;
+  --mf-warn: #facc15;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--mf-bg);
+  height: 100%;
+}
+
+/* --- Canvas ------------------------------------------------- */
+#canvas {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--mf-bg);
+  background-image:
+    radial-gradient(circle, var(--mf-border) 1px, transparent 1px);
+  background-size: 30px 30px;
+}
+
+/* Empty-state watermark */
+#canvas:empty::after {
+  content: "No pages yet — agents can create HTML files in pages/";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--mf-muted);
+  opacity: 0.2;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* --- Floating window ---------------------------------------- */
+.mf-window {
+  position: absolute;
+  background: var(--mf-surface);
+  border: 1px solid var(--mf-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.mf-window:hover,
+.mf-window.mf-focused {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* --- Title bar ---------------------------------------------- */
+.mf-titlebar {
+  height: 36px;
+  min-height: 36px;
+  background: var(--mf-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  cursor: grab;
+  user-select: none;
+  border-bottom: 1px solid var(--mf-border);
+}
+
+.mf-titlebar.mf-dragging {
+  cursor: grabbing;
+}
+
+/* --- Title text --------------------------------------------- */
+.mf-title {
+  color: var(--mf-text);
+  font-size: 13px;
+  font-family: system-ui, 'Segoe UI', sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 40px);
+  line-height: 36px;
+}
+
+/* --- Window controls ---------------------------------------- */
+.mf-controls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* --- Close button ------------------------------------------- */
+.mf-close {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--mf-muted);
+  font-size: 18px;
+  line-height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mf-close:hover {
+  background: #ff4757;
+  color: #fff;
+}
+
+/* --- Minimize button ---------------------------------------- */
+.mf-minimize {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--mf-muted);
+  font-size: 18px;
+  line-height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mf-minimize:hover {
+  background: #ffa502;
+  color: #fff;
+}
+
+/* --- Maximize button ---------------------------------------- */
+.mf-maximize {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--mf-muted);
+  font-size: 18px;
+  line-height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mf-maximize:hover {
+  background: #2ed573;
+  color: #fff;
+}
+
+/* --- Minimized state ---------------------------------------- */
+.mf-window.mf-minimized { height: 36px !important; }
+.mf-window.mf-minimized .mf-iframe,
+.mf-window.mf-minimized .mf-resize-handle { display: none; }
+
+/* --- Maximized state ---------------------------------------- */
+.mf-window.mf-maximized {
+  left: 0 !important; top: 0 !important;
+  width: 100% !important; height: 100% !important;
+  border-radius: 0;
+}
+
+/* --- Transition for tiling ---------------------------------- */
+.mf-window.mf-tiling {
+  transition: left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+
+/* --- Iframe ------------------------------------------------- */
+.mf-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* --- Resize handle ------------------------------------------ */
+.mf-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+
+.mf-resize-handle::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 8px 8px;
+  border-color: transparent transparent rgba(255, 255, 255, 0.2) transparent;
+}
+
+/* --- Drag overlay (blocks iframe pointer events) ------------ */
+.mf-drag-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+  pointer-events: auto;
+}
