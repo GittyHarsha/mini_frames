@@ -1,6 +1,5 @@
 ---
 description: Generate web pages that appear as floating iframe windows in Mini Frames
-tools: ['bash', 'editFiles', 'view', 'fetch', 'search', 'glob', 'terminalLastCommand']
 ---
 
 # Mini Frames — Page Generator
