@@ -22,9 +22,10 @@ cd <plugin-dir> && npm start
 
 Open **http://localhost:3000** in your browser.
 
-Then ask Copilot (in agent mode) to create pages:
-> *"@mini-frames build me a kanban board"*
-> *"@mini-frames create a live clock widget"*
+Then switch to the **mini-frames** custom agent in Copilot CLI (Shift+Tab → select `mini-frames`) and start building:
+> *"build me a kanban board"*
+> *"create a live clock widget"*
+> *"make a markdown editor with preview"*
 
 The agent drops an HTML file into `~/.copilot/mini-frames/pages/` and it instantly appears as a floating window.
 
