@@ -22,7 +22,7 @@ cd <plugin-dir> && npm start
 
 Open **http://localhost:3000** in your browser.
 
-Then switch to the **mini-frames** custom agent in Copilot CLI (Shift+Tab → select `mini-frames`) and start building:
+Then switch to the **mini-frames** custom agent in Copilot CLI and start building:
 > *"build me a kanban board"*
 > *"create a live clock widget"*
 > *"make a markdown editor with preview"*
